@@ -20,6 +20,11 @@ app.use(express.json());
 app.use(morgan('dev'));
 
 // Health check
+app.get('/Naimat Bazaar API is running', (req, res) => {
+  res.status(200).json({ success: true, message: 'Naimat Bazaar API is running' });
+});
+
+// Health check
 app.get('/api/health', (req, res) => {
   res.status(200).json({ success: true, message: 'Naimat Bazaar API is running' });
 });
