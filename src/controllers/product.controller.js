@@ -2,9 +2,12 @@ import Product from '../models/Product.js';
 import Category from '../models/Category.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import cloudinary from '../config/cloudinary.js';
+import connectDB from '../config/db.js'; // <-- 1. IMPORT CONNECTDB
 
 // GET /api/products (With search, category filter, pagination)
 export const getProducts = asyncHandler(async (req, res) => {
+  await connectDB(); // <-- 2. AWAIT CONNECTION HERE
+
   const { category, search, page = 1, limit = 12 } = req.query;
   const query = { isActive: true };
 
@@ -40,8 +43,10 @@ export const getProducts = asyncHandler(async (req, res) => {
 
 // GET /api/products/:slug
 export const getProductBySlug = asyncHandler(async (req, res) => {
+  await connectDB(); // <-- AWAIT CONNECTION HERE
+
   const product = await Product.findOne({ slug: req.params.slug, isActive: true }).populate('category', 'name slug');
-  
+
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }
@@ -51,39 +56,37 @@ export const getProductBySlug = asyncHandler(async (req, res) => {
 
 // POST /api/products (Admin Only)
 export const createProduct = asyncHandler(async (req, res) => {
+  await connectDB(); // <-- AWAIT CONNECTION HERE
+
   let { title, description, category, variants, images, isFeatured } = req.body;
 
-  // 1. Automatically generate a unique slug from the title if missing
   let slug = title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
 
-  // 2. Check if category is passed as a slug/name or ObjectId, and find the real Category _id
   let categoryId = category;
   if (category && typeof category === 'string' && category.length !== 24) {
-    const catDoc = await Category.findOne({ 
-      $or: [{ slug: category }, { name: new RegExp('^' + category + '$', 'i') }] 
+    const catDoc = await Category.findOne({
+      $or: [{ slug: category }, { name: new RegExp('^' + category + '$', 'i') }]
     });
     if (catDoc) {
       categoryId = catDoc._id;
     }
   }
 
-  // 3. Handle variants safely and ensure required subfields like 'grammage' are populated
   let parsedVariants = typeof variants === 'string' ? JSON.parse(variants) : variants;
   if (Array.isArray(parsedVariants)) {
     parsedVariants = parsedVariants.map(v => ({
       price: Number(v.price),
       stock: Number(v.stock),
-      grammage: v.grammage || 'Standard', // Fallback so 'grammage' is never missing
+      grammage: v.grammage || 'Standard',
       unit: v.unit || 'piece'
     }));
   } else {
     parsedVariants = [{ price: 0, stock: 0, grammage: 'Standard', unit: 'piece' }];
   }
 
-  // 4. Handle images array
   let parsedImages = typeof images === 'string' ? JSON.parse(images) : images;
 
   const product = await Product.create({
@@ -101,14 +104,15 @@ export const createProduct = asyncHandler(async (req, res) => {
 
 // PUT /api/products/:id (Admin Only - Update Product)
 export const updateProduct = asyncHandler(async (req, res) => {
+  await connectDB(); // <-- AWAIT CONNECTION HERE
+
   const { title, slug, description, ingredients, category, variants, isFeatured, isActive } = req.body;
-  
+
   let product = await Product.findById(req.params.id);
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }
 
-  // Handle optional new file uploads
   let uploadedImages = product.images || [];
   if (req.files && req.files.length > 0) {
     for (const file of req.files) {
@@ -143,13 +147,14 @@ export const updateProduct = asyncHandler(async (req, res) => {
 });
 
 export const deleteProduct = asyncHandler(async (req, res) => {
+  await connectDB(); // <-- AWAIT CONNECTION HERE
+
   const product = await Product.findById(req.params.id);
 
   if (!product) {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }
 
-  // Safely try deleting images if configuration exists
   try {
     if (product.images && product.images.length > 0) {
       for (const img of product.images) {
