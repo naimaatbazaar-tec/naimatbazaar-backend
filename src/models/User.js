@@ -1,6 +1,14 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
+const addressSubSchema = new mongoose.Schema({
+  fullName: { type: String, trim: true },
+  phone: { type: String, trim: true },
+  addressLine: { type: String, trim: true },
+  city: { type: String, trim: true },
+  postalCode: { type: String, trim: true },
+});
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -11,7 +19,7 @@ const userSchema = new mongoose.Schema(
     googleId: { type: String, select: false },
     role: { type: String, enum: ['user', 'admin'], default: 'user' },
     status: { type: String, enum: ['active', 'blocked'], default: 'active' },
-    addresses: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Address' }],
+    addresses: [addressSubSchema], // Stores saved user addresses
   },
   { timestamps: true }
 );

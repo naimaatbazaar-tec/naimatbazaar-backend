@@ -1,6 +1,7 @@
 import express from 'express';
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import User from '../models/User.js';
 import asyncHandler from '../utils/asyncHandler.js';
 
 const router = express.Router();
@@ -12,7 +13,6 @@ router.get('/', asyncHandler(async (req, res) => {
   const { search, status } = req.query;
   let query = {};
 
-  // Search filter by Order ID, Order Number, Customer Full Name, or Email
   if (search) {
     const searchRegex = new RegExp(search, 'i');
     const conditions = [
@@ -21,7 +21,6 @@ router.get('/', asyncHandler(async (req, res) => {
       { 'shippingInfo.email': searchRegex },
     ];
     
-    // Check if search string is a valid MongoDB ObjectId
     if (search.match(/^[0-9a-fA-F]{24}$/)) {
       conditions.push({ _id: search });
       conditions.push({ user: search });
@@ -30,7 +29,6 @@ router.get('/', asyncHandler(async (req, res) => {
     query.$or = conditions;
   }
 
-  // Filter by order status if provided
   if (status && status !== 'all') {
     query.orderStatus = status.toLowerCase();
   }
@@ -39,7 +37,6 @@ router.get('/', asyncHandler(async (req, res) => {
     .populate('user', 'name email')
     .sort({ createdAt: -1 });
 
-  // Calculate stats for admin dashboard widgets
   const totalOrdersCount = await Order.countDocuments();
   const pendingCount = await Order.countDocuments({ orderStatus: 'placed' });
   const processingCount = await Order.countDocuments({ orderStatus: 'processing' });
@@ -79,6 +76,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 // 3. CREATE ORDER (Customer / Admin Checkout)
 // ==========================================
 router.post('/', asyncHandler(async (req, res) => {
+  // Safe Guard Fallback: Fall back to an empty object if req.body is undefined
   const {
     orderNumber,
     user,
@@ -89,7 +87,7 @@ router.post('/', asyncHandler(async (req, res) => {
     total,
     paymentMethod,
     paymentStatus,
-  } = req.body;
+  } = req.body || {};
 
   if (!items || items.length === 0) {
     return res.status(400).json({ success: false, message: 'Cart items cannot be empty.' });
@@ -99,10 +97,20 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Missing required shipping information.' });
   }
 
+  // Ensure item images are accurately processed and saved
+  const formattedItems = items.map((item) => ({
+    product: item.productId || item.product,
+    title: item.title || 'Product',
+    image: item.image || '',
+    grammage: item.grammage || '',
+    price: Number(item.price || 0),
+    qty: Number(item.qty || 1),
+  }));
+
   const newOrder = await Order.create({
     orderNumber: orderNumber || 'NB-' + Math.floor(100000 + Math.random() * 900000),
     user: user || null,
-    items,
+    items: formattedItems,
     shippingInfo,
     subtotal,
     deliveryFee: deliveryFee || 0,
@@ -113,6 +121,18 @@ router.post('/', asyncHandler(async (req, res) => {
     statusHistory: [{ status: 'placed', note: 'Order placed successfully' }],
   });
 
+  // Automatically save address to User profile if logged in
+  if (user) {
+    await User.findByIdAndUpdate(user, {
+      $push: {
+        addresses: {
+          $each: [shippingInfo],
+          $position: 0,
+        },
+      },
+    }).catch(() => {});
+  }
+
   return res.status(201).json({
     success: true,
     message: 'Order created successfully!',
@@ -121,7 +141,7 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 // ==========================================
-// 4. UPDATE ORDER STATUS & DETAILS (Admin Edit/Fulfillment)
+// 4. UPDATE ORDER STATUS & DETAILS
 // ==========================================
 router.put('/:id', asyncHandler(async (req, res) => {
   const { orderStatus, paymentStatus, shippingInfo } = req.body;
@@ -152,7 +172,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
 }));
 
 // ==========================================
-// 5. UPDATE SOLE ORDER STATUS (Endpoint compatible with frontend modal)
+// 5. UPDATE SOLE ORDER STATUS
 // ==========================================
 router.put('/:id/status', asyncHandler(async (req, res) => {
   const { orderStatus, note } = req.body;
@@ -186,12 +206,11 @@ router.delete('/:id', asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'Order not found' });
   }
 
-  // Restore product stock upon order deletion/cancellation if needed
   for (const item of order.items) {
     await Product.updateOne(
       { _id: item.product, 'variants.grammage': item.grammage },
       { $inc: { 'variants.$.stock': item.qty } }
-    ).catch(() => {}); // silent catch if variant changes structure
+    ).catch(() => {});
   }
 
   await order.deleteOne();

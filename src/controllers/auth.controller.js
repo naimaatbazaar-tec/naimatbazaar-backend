@@ -40,12 +40,10 @@ export const register = asyncHandler(async (req, res) => {
   });
 });
 
-
 // POST /api/auth/login
 export const login = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  // 🛠️ FIX: Explicitly include +role and +status so they aren't skipped
   const user = await User.findOne({ email }).select('+password +role +status');
   if (!user || user.authProvider !== 'local') {
     return res.status(401).json({ success: false, message: 'Invalid email or password' });
@@ -114,4 +112,20 @@ export const getMe = asyncHandler(async (req, res) => {
     success: true,
     data: sanitizeUser(req.user),
   });
+});
+
+// GET /api/users/addresses (Fetch saved addresses for logged-in user)
+export const getUserAddresses = asyncHandler(async (req, res) => {
+  const userId = req.user?._id || req.user?.id;
+  
+  if (!userId) {
+    return res.status(401).json({ success: false, message: 'Not authorized' });
+  }
+
+  const user = await User.findById(userId).select('addresses');
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+
+  res.status(200).json({ success: true, data: user.addresses });
 });

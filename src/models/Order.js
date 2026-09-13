@@ -8,6 +8,7 @@ const orderItemSchema = new mongoose.Schema(
       required: [true, 'Product reference is required'],
     },
     title: { type: String, required: true, trim: true },
+    image: { type: String, trim: true, default: '' }, // Captured product image url
     grammage: { type: String, trim: true, default: '' },
     price: { type: Number, required: true, min: [0, 'Price cannot be negative'] },
     qty: { type: Number, required: true, min: [1, 'Quantity must be at least 1'] },
@@ -27,7 +28,7 @@ const orderSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      default: null, // Set default to null to safely support guest checkouts if needed
+      default: null,
       index: true,
     },
     items: {
@@ -61,9 +62,14 @@ const orderSchema = new mongoose.Schema(
     },
     paymentStatus: {
       type: String,
-      enum: ['pending', 'paid', 'failed', 'refunded'],
+      enum: ['pending', 'verification_pending', 'paid', 'failed', 'refunded'],
       default: 'pending',
       lowercase: true,
+    },
+    paymentReceipt: { 
+      type: String, 
+      default: '',
+      trim: true 
     },
     orderStatus: {
       type: String,
@@ -83,5 +89,4 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Prevent model overwrite error during Next.js hot module reloading (HMR)
 export default mongoose.models.Order || mongoose.model('Order', orderSchema);

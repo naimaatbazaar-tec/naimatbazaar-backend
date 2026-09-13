@@ -1,5 +1,7 @@
+import mongoose from 'mongoose'; 
 import Order from '../models/Order.js';
 import Product from '../models/Product.js';
+import User from '../models/User.js';
 import Payment from '../models/Payment.js';
 import asyncHandler from '../utils/asyncHandler.js';
 import Stripe from 'stripe';
@@ -40,9 +42,14 @@ export const createOrder = asyncHandler(async (req, res) => {
     }
 
     subtotal += variant.price * item.qty;
+    
+    // Captured image from frontend item or fallback to product's first image
+    const itemImage = item.image || item.imageUrl || (product.images && product.images[0]) || '';
+
     verifiedItems.push({
       product: product._id,
       title: product.title,
+      image: itemImage, // <-- Included image field
       grammage: variant.grammage,
       price: variant.price,
       qty: item.qty,
@@ -66,6 +73,18 @@ export const createOrder = asyncHandler(async (req, res) => {
     statusHistory: [{ status: 'placed', note: 'Order created' }],
   });
 
+  // Automatically save/update address to User profile if logged in
+  if (userId) {
+    await User.findByIdAndUpdate(userId, {
+      $push: {
+        addresses: {
+          $each: [shippingInfo],
+          $position: 0, // Keeps the most recent address at the top of the array
+        },
+      },
+    }).catch((err) => console.error('Failed to save address to user profile:', err));
+  }
+
   // Reduce inventory stock
   for (const item of verifiedItems) {
     await Product.updateOne(
@@ -76,7 +95,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
   // Handle Stripe Payment Intent creation if card is selected
   let clientSecret = null;
-  if (paymentMethod === 'card') {
+  if (paymentMethod === 'card' || paymentMethod === 'online') {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: Math.round(total * 100),
       currency: 'pkr',
@@ -128,15 +147,15 @@ export const getMyOrders = asyncHandler(async (req, res) => {
 export const getOrderById = asyncHandler(async (req, res) => {
   const userId = req.user?._id || req.user?.id;
   const userEmail = req.user?.email;
+  const identifier = req.params.id;
 
-  const userConditions = [];
-  if (userId) userConditions.push({ user: userId });
-  if (userEmail) userConditions.push({ 'shippingInfo.email': userEmail });
+  // Check if identifier is a valid MongoDB ObjectId or fallback to orderNumber
+  const isObjectId = mongoose.Types.ObjectId.isValid(identifier);
+  const queryIdentifier = isObjectId 
+    ? { _id: identifier } 
+    : { orderNumber: identifier };
 
-  const order = await Order.findOne({
-    _id: req.params.id,
-    $or: userConditions.length > 0 ? userConditions : [{ user: null }],
-  });
+  const order = await Order.findOne(queryIdentifier);
 
   if (!order) {
     return res.status(404).json({ success: false, message: 'Order not found' });
